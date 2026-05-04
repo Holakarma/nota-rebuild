@@ -95,6 +95,9 @@ CREATE TABLE "telegram_link_tokens" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "users_login_key" ON "users"("login");
+
+-- CreateIndex
 CREATE INDEX "auth_identities_user_id_idx" ON "auth_identities"("user_id");
 
 -- CreateIndex
@@ -159,3 +162,54 @@ ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user
 
 -- AddForeignKey
 ALTER TABLE "telegram_link_tokens" ADD CONSTRAINT "telegram_link_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+
+-- RAW SQL MIGRATE
+
+-- Enable trigram operator classes for fuzzy and substring search.
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+-- Enforce case-insensitive login uniqueness.
+CREATE UNIQUE INDEX "users_login_lower_uq" ON "users" (lower("login"));
+
+-- Build a multilingual search vector for mixed Russian/English notes.
+CREATE OR REPLACE FUNCTION "notes_search_vector_build"("body_text" text)
+RETURNS tsvector AS $$
+    SELECT
+        setweight(to_tsvector('pg_catalog.russian', coalesce($1, '')), 'A') ||
+        setweight(to_tsvector('pg_catalog.english', coalesce($1, '')), 'A') ||
+        setweight(to_tsvector('pg_catalog.simple', coalesce($1, '')), 'D');
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE;
+
+-- Keep notes.search_vector in sync with body_text.
+CREATE OR REPLACE FUNCTION "notes_search_vector_sync"()
+RETURNS trigger AS $$
+BEGIN
+    NEW."search_vector" := "notes_search_vector_build"(NEW."body_text");
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+UPDATE "notes"
+SET "search_vector" = "notes_search_vector_build"("body_text");
+
+CREATE TRIGGER "notes_search_vector_sync_trg"
+BEFORE INSERT OR UPDATE OF "body_text"
+ON "notes"
+FOR EACH ROW
+EXECUTE FUNCTION "notes_search_vector_sync"();
+
+-- Replace Prisma's plain list index with the raw partial index used by active notes.
+DROP INDEX "notes_user_id_updated_at_idx";
+
+CREATE INDEX "notes_user_id_updated_at_idx"
+ON "notes" ("user_id", "updated_at" DESC)
+WHERE "deleted_at" IS NULL;
+
+CREATE INDEX "notes_search_vector_gin_idx"
+ON "notes" USING GIN ("search_vector")
+WHERE "deleted_at" IS NULL;
+
+CREATE INDEX "notes_body_text_trgm_idx"
+ON "notes" USING GIN ("body_text" gin_trgm_ops)
+WHERE "deleted_at" IS NULL;
