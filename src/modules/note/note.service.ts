@@ -23,7 +23,10 @@ export class NoteService {
 
   async create(userId: string, dto: CreateNoteDto) {
     await this.noteRepository.create(userId, dto.bodyMarkdown, (tx) =>
-      this.noteStreamService.resolveStreamIdsForNote(userId, dto.streamIds, tx),
+      this.noteStreamService.resolveStreamIdsForNote(userId, {
+        streamIds: dto.streamIds,
+        client: tx,
+      }),
     );
 
     return true;
@@ -63,7 +66,9 @@ export class NoteService {
 
   async findOne(userId: string, id: string) {
     try {
-      return await this.noteRepository.findOwnedById(userId, id);
+      const note = await this.noteRepository.findOwnedById(userId, id);
+
+      return await this.mapNoteWithStreams(userId, note);
     } catch (error: unknown) {
       this.throwNoteNotFoundIfNeeded(error);
     }
@@ -71,13 +76,13 @@ export class NoteService {
 
   async update(userId: string, id: string, dto: UpdateNoteDto) {
     try {
-      await this.noteRepository.updateOwnedContent(
+      const note = await this.noteRepository.updateOwnedContent(
         userId,
         id,
         dto.bodyMarkdown,
       );
 
-      return true;
+      return await this.mapNoteWithStreams(userId, note);
     } catch (error: unknown) {
       this.throwNoteNotFoundIfNeeded(error);
     }
@@ -99,5 +104,20 @@ export class NoteService {
     }
 
     throw error;
+  }
+
+  private async mapNoteWithStreams<T extends { id: string }>(
+    userId: string,
+    note: T,
+  ) {
+    const streamsByNoteId = await this.noteStreamService.findStreamsByNoteIds(
+      userId,
+      [note.id],
+    );
+
+    return {
+      ...note,
+      streams: streamsByNoteId.get(note.id) ?? [],
+    };
   }
 }

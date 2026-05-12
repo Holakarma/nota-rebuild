@@ -134,8 +134,11 @@ export class ChatService {
       });
       const streamIds = await this.noteStreamService.resolveStreamIdsForNote(
         userId,
-        chat.streamId ? [chat.streamId] : [],
-        tx,
+        {
+          streamIds: chat.streamId ? [chat.streamId] : [],
+          streamNames: parsedMessage.streamNames,
+          client: tx,
+        },
       );
       const note = await tx.note.create({
         data: {
@@ -161,7 +164,7 @@ export class ChatService {
           chatId: chat.id,
           role: ChatMessageRole.SYSTEM,
           kind: ChatMessageKind.NOTE_CREATED,
-          bodyMarkdown: 'Заметка создана',
+          bodyMarkdown: 'Создана заметка',
           replyToMessageId: userMessage.id,
           resultNoteId: note.id,
         },

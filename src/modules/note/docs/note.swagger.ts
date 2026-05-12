@@ -191,7 +191,7 @@ export function ApiUpdateNote() {
     ApiBody({ type: UpdateNoteDto }),
     ApiOkResponse({
       description: 'Note was updated',
-      schema: booleanSuccessResponseSchema,
+      type: NoteResponseDto,
     }),
     ApiBadRequestResponse({ description: 'Validation errors' }),
     ApiNotFoundResponse({ description: 'Note not found' }),

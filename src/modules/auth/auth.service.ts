@@ -137,7 +137,7 @@ export class AuthService {
       domain: this.COOKIE_DOMAIN,
       expires,
       secure: !isDev(this.config),
-      sameSite: isDev(this.config) ? 'none' : 'lax',
+      sameSite: 'lax',
     });
   }
 }

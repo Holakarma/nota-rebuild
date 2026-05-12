@@ -19,6 +19,12 @@ type PrismaClientLike = PrismaService | Prisma.TransactionClient;
 
 type PreparedStreamName = ReturnType<typeof prepareStreamName>;
 
+type ResolveStreamIdsForNoteParams = {
+  streamIds?: string[];
+  streamNames?: string[];
+  client?: PrismaClientLike;
+};
+
 @Injectable()
 export class NoteStreamService {
   constructor(
@@ -120,16 +126,21 @@ export class NoteStreamService {
 
   async resolveStreamIdsForNote(
     userId: string,
-    streamIds: string[] = [],
-    client: PrismaClientLike = this.prisma,
+    params: ResolveStreamIdsForNoteParams = {},
   ) {
+    const { streamIds = [], streamNames = [], client = this.prisma } = params;
     const ownedStreamIds = await this.getOwnedStreamIdsOrThrow(
       client,
       userId,
       this.uniqueStrings(streamIds),
     );
+    const namedStreamIds = await this.resolveStreamIdsByName(
+      client,
+      userId,
+      streamNames,
+    );
 
-    return this.uniqueStrings(ownedStreamIds);
+    return this.uniqueStrings([...ownedStreamIds, ...namedStreamIds]);
   }
 
   async findStreamsByNoteIds(
@@ -204,6 +215,44 @@ export class NoteStreamService {
     }
 
     return streams.map((stream) => stream.id);
+  }
+
+  private async resolveStreamIdsByName(
+    client: PrismaClientLike,
+    userId: string,
+    streamNames: string[],
+  ) {
+    const names = this.prepareUniqueNames(streamNames);
+
+    if (names.length === 0) {
+      return [];
+    }
+
+    const streamIds: string[] = [];
+
+    for (const name of names) {
+      const stream = await client.stream.upsert({
+        where: {
+          userId_normalizedName: {
+            userId,
+            normalizedName: name.normalizedName,
+          },
+        },
+        update: {},
+        create: {
+          userId,
+          name: name.name,
+          normalizedName: name.normalizedName,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      streamIds.push(stream.id);
+    }
+
+    return streamIds;
   }
 
   private async getOwnedStreamOrThrow(

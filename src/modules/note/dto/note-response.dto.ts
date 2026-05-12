@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NoteSourceType } from '@core/prisma/generated/prisma/client';
+import { NoteListStreamResponseDto } from './note-with-streams-response.dto';
 
 export class NoteResponseDto {
   @ApiProperty({
@@ -22,6 +23,12 @@ export class NoteResponseDto {
 
   @ApiProperty({ example: 'new note' })
   previewText!: string;
+
+  @ApiProperty({
+    description: 'streams linked with this note',
+    type: () => [NoteListStreamResponseDto],
+  })
+  streams!: NoteListStreamResponseDto[];
 
   @ApiProperty({
     enum: NoteSourceType,

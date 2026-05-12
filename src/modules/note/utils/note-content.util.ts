@@ -1,4 +1,4 @@
-export const NOTE_PREVIEW_TEXT_LENGTH = 20;
+export const NOTE_PREVIEW_TEXT_LENGTH = 80;
 
 export function buildNoteContentFields(bodyMarkdown: string) {
   const bodyText = markdownToPlainText(bodyMarkdown);

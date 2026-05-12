@@ -146,7 +146,7 @@ export class NoteRepository {
     try {
       const note = await this.findOwnedById(userId, id);
 
-      await this.prisma.note.update({
+      return await this.prisma.note.update({
         where: {
           id: note.id,
         },
