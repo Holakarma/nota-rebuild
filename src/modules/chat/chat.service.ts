@@ -4,23 +4,62 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  ChatMessageKind,
-  ChatMessageRole,
-  NoteSourceType,
-  Prisma,
-} from '@core/prisma/generated/prisma/client';
+import { Prisma } from '@core/prisma/generated/prisma/client';
 import { PrismaService } from '@core/prisma/prisma.service';
 import { NoteStreamService } from '@modules/note-stream/note-stream.service';
 import { buildNoteContentFields } from '@modules/note/utils/note-content.util';
 import { CursorPaginationDto } from '@shared/pagination/dto/pagination.dto';
 import { PaginationService } from '@shared/pagination/pagination.service';
 import { DecodeCursorError } from '@shared/pagination/utils/codec.util';
+import { ChatMessageRole } from './constants/chat-message-role.constant';
 import { CreateChatMessageDto } from './dto/create-chat-message.dto';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { parseChatMessageForNote } from './utils/chat-message-parser.util';
 
 type PrismaClientLike = PrismaService | Prisma.TransactionClient;
+
+const chatMessageResultInclude = {
+  result: {
+    include: {
+      note: {
+        select: {
+          id: true,
+          previewText: true,
+          noteStreams: {
+            select: {
+              stream: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      },
+      streams: {
+        select: {
+          stream: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  },
+} as const satisfies Prisma.ChatMessageInclude;
+
+type ChatMessageWithResult = Prisma.ChatMessageGetPayload<{
+  include: typeof chatMessageResultInclude;
+}>;
+
+type ChatMessageStream = {
+  id: string;
+  name: string;
+};
 
 @Injectable()
 export class ChatService {
@@ -67,7 +106,9 @@ export class ChatService {
   async findAll(userId: string, paginateDto: CursorPaginationDto) {
     try {
       const chats = await this.prisma.chat.findMany({
-        where: { userId },
+        where: {
+          OR: this.ownedChatConditions(userId),
+        },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         ...this.pagination.toPrismaCursorArgs<Prisma.ChatWhereUniqueInput>(
           paginateDto,
@@ -75,11 +116,16 @@ export class ChatService {
         ),
       });
 
-      return this.pagination.toCursorPage(
+      const page = this.pagination.toCursorPage(
         chats,
         paginateDto,
         (chat) => chat.id,
       );
+
+      return {
+        ...page,
+        result: page.result.map((chat) => this.mapChat(chat, userId)),
+      };
     } catch (error: unknown) {
       this.throwInvalidCursorIfNeeded(error);
     }
@@ -94,18 +140,23 @@ export class ChatService {
       const chat = await this.getOwnedChatOrThrow(userId, chatId);
       const messages = await this.prisma.chatMessage.findMany({
         where: { chatId: chat.id },
+        include: chatMessageResultInclude,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         ...this.pagination.toPrismaCursorArgs<Prisma.ChatMessageWhereUniqueInput>(
           paginateDto,
           (id) => ({ id }),
         ),
       });
-
-      return this.pagination.toCursorPage(
+      const page = this.pagination.toCursorPage(
         messages,
         paginateDto,
         (message) => message.id,
       );
+
+      return {
+        ...page,
+        result: this.mapChatMessages(page.result),
+      };
     } catch (error: unknown) {
       this.throwInvalidCursorIfNeeded(error);
     }
@@ -127,25 +178,19 @@ export class ChatService {
       const userMessage = await tx.chatMessage.create({
         data: {
           chatId: chat.id,
-          role: ChatMessageRole.USER,
-          kind: ChatMessageKind.USER_INPUT,
           bodyMarkdown: dto.bodyMarkdown,
         },
       });
-      const streamIds = await this.noteStreamService.resolveStreamIdsForNote(
-        userId,
-        {
+      const { streamIds, createdStreamIds } =
+        await this.noteStreamService.resolveStreamIdsForNoteResult(userId, {
           streamIds: chat.streamId ? [chat.streamId] : [],
           streamNames: parsedMessage.streamNames,
           client: tx,
-        },
-      );
+        });
       const note = await tx.note.create({
         data: {
           userId,
           ...buildNoteContentFields(parsedMessage.bodyMarkdown),
-          sourceType: NoteSourceType.WEB,
-          sourceMessageId: userMessage.id,
           ...(streamIds.length > 0 && {
             noteStreams: {
               createMany: {
@@ -159,15 +204,28 @@ export class ChatService {
           id: true,
         },
       });
-      const systemMessage = await tx.chatMessage.create({
+      const message = await tx.chatMessage.update({
+        where: { id: userMessage.id },
         data: {
-          chatId: chat.id,
-          role: ChatMessageRole.SYSTEM,
-          kind: ChatMessageKind.NOTE_CREATED,
-          bodyMarkdown: 'Создана заметка',
-          replyToMessageId: userMessage.id,
-          resultNoteId: note.id,
+          result: {
+            create: {
+              note: {
+                connect: {
+                  id: note.id,
+                },
+              },
+              ...(createdStreamIds.length > 0 && {
+                streams: {
+                  createMany: {
+                    data: createdStreamIds.map((streamId) => ({ streamId })),
+                    skipDuplicates: true,
+                  },
+                },
+              }),
+            },
+          },
         },
+        include: chatMessageResultInclude,
       });
 
       await tx.chat.update({
@@ -175,11 +233,39 @@ export class ChatService {
         data: { updatedAt: new Date() },
       });
 
-      return {
-        userMessage,
-        systemMessage,
-      };
+      return this.mapChatMessage(message);
     });
+  }
+
+  private mapChatMessages(messages: ChatMessageWithResult[]) {
+    return messages.map((message) => this.mapChatMessage(message));
+  }
+
+  private mapChatMessage(message: ChatMessageWithResult) {
+    const { result, ...messageFields } = message;
+
+    return {
+      ...messageFields,
+      role: ChatMessageRole.USER,
+      replyToMessageId: null,
+      result: result
+        ? {
+            note: result.note
+              ? {
+                  id: result.note.id,
+                  previewText: result.note.previewText,
+                  streamNames: result.note.noteStreams.map(
+                    (noteStream) => noteStream.stream.name,
+                  ),
+                }
+              : null,
+            streams: result.streams.map((messageResultStream) => ({
+              id: messageResultStream.stream.id,
+              name: messageResultStream.stream.name,
+            })),
+          }
+        : null,
+    };
   }
 
   private async getOwnedChatOrThrow(
@@ -189,7 +275,10 @@ export class ChatService {
   ) {
     try {
       return await client.chat.findFirstOrThrow({
-        where: { id, userId },
+        where: {
+          id,
+          OR: this.ownedChatConditions(userId, true),
+        },
         select: {
           id: true,
           streamId: true,
@@ -206,18 +295,22 @@ export class ChatService {
     client: PrismaClientLike = this.prisma,
   ) {
     return await client.chat.findFirst({
-      where: { userId, streamId },
+      where: {
+        streamId,
+        OR: this.ownedChatConditions(userId),
+      },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
   }
 
   private async createChat(userId: string, streamId: string | null) {
-    return await this.prisma.chat.create({
+    const chat = await this.prisma.chat.create({
       data: {
-        userId,
         streamId,
       },
     });
+
+    return this.mapChat(chat, userId);
   }
 
   private async resolveOwnedStreamId(userId: string, dto: CreateChatDto) {
@@ -302,6 +395,64 @@ export class ChatService {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2002'
     );
+  }
+
+  private uniqueStrings(values: string[]) {
+    return [...new Set(values)];
+  }
+
+  private mapChat<
+    T extends {
+      id: string;
+      streamId: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    },
+  >(chat: T, userId: string) {
+    return {
+      ...chat,
+      userId,
+    };
+  }
+
+  private ownedChatConditions(
+    userId: string,
+    allowUnclaimedGeneralChat = false,
+  ): Prisma.ChatWhereInput[] {
+    const conditions: Prisma.ChatWhereInput[] = [
+      {
+        stream: {
+          userId,
+        },
+      },
+      {
+        streamId: null,
+        messages: {
+          some: {
+            result: {
+              is: {
+                note: {
+                  is: {
+                    userId,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    if (allowUnclaimedGeneralChat) {
+      conditions.push({
+        streamId: null,
+        messages: {
+          none: {},
+        },
+      });
+    }
+
+    return conditions;
   }
 
   private throwStreamNotFoundIfNeeded(error: unknown): never {

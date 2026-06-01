@@ -4,16 +4,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@core/prisma/generated/prisma/client';
+import { Prisma, Stream } from '@core/prisma/generated/prisma/client';
 import { PrismaService } from '@core/prisma/prisma.service';
 import { CursorPaginationDto } from '@shared/pagination/dto/pagination.dto';
 import { PaginationService } from '@shared/pagination/pagination.service';
 import { DecodeCursorError } from '@shared/pagination/utils/codec.util';
+import { SIMILAR_SEARCH_DEFAULT_LIMIT } from '@shared/similar-search/similar-search.constants';
 import { CreateStreamDto } from './dto/create-stream.dto';
+import { FindSimilarStreamsDto } from './dto/find-similar-streams.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { prepareStreamName } from './utils/prepare-stream-name.util';
 
 type PrismaClientLike = PrismaService | Prisma.TransactionClient;
+
+const SIMILAR_STREAMS_MIN_SCORE = 0.12;
 
 @Injectable()
 export class StreamService {
@@ -59,6 +63,72 @@ export class StreamService {
     } catch (error: unknown) {
       this.throwInvalidCursorIfNeeded(error);
     }
+  }
+
+  async findSimilar(userId: string, dto: FindSimilarStreamsDto) {
+    const limit = dto.limit ?? SIMILAR_SEARCH_DEFAULT_LIMIT;
+
+    return await this.prisma.$queryRaw<Stream[]>`
+      WITH "search" AS (
+        SELECT
+          (
+            websearch_to_tsquery('pg_catalog.russian', ${dto.query}) ||
+            websearch_to_tsquery('pg_catalog.english', ${dto.query}) ||
+            websearch_to_tsquery('pg_catalog.simple', ${dto.query})
+          ) AS "tsQuery",
+          ${dto.query}::text AS "textQuery",
+          lower(${dto.query}::text) AS "normalizedTextQuery"
+      ),
+      "scoredStreams" AS (
+        SELECT
+          "stream"."id",
+          "stream"."user_id" AS "userId",
+          "stream"."name",
+          "stream"."normalized_name" AS "normalizedName",
+          "stream"."created_at" AS "createdAt",
+          "stream"."updated_at" AS "updatedAt",
+          CASE
+            WHEN numnode("search"."tsQuery") > 0
+              THEN ts_rank_cd(
+                (
+                  setweight(to_tsvector('pg_catalog.russian', "stream"."name"), 'A') ||
+                  setweight(to_tsvector('pg_catalog.english', "stream"."name"), 'A') ||
+                  setweight(to_tsvector('pg_catalog.simple', "stream"."normalized_name"), 'D')
+                ),
+                "search"."tsQuery",
+                32
+              )
+            ELSE 0
+          END
+          + greatest(
+            coalesce(word_similarity("search"."textQuery", "stream"."name"), 0),
+            coalesce(
+              word_similarity(
+                "search"."normalizedTextQuery",
+                "stream"."normalized_name"
+              ),
+              0
+            )
+          ) AS "similarityScore"
+        FROM "streams" AS "stream"
+        CROSS JOIN "search"
+        WHERE "stream"."user_id" = ${userId}::uuid
+      )
+      SELECT
+        "id",
+        "userId",
+        "name",
+        "normalizedName",
+        "createdAt",
+        "updatedAt"
+      FROM "scoredStreams"
+      WHERE "similarityScore" >= ${SIMILAR_STREAMS_MIN_SCORE}
+      ORDER BY
+        "similarityScore" DESC,
+        "updatedAt" DESC,
+        "id" DESC
+      LIMIT ${limit}
+    `;
   }
 
   async findOne(userId: string, id: string) {

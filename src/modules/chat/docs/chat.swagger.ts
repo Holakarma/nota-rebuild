@@ -15,11 +15,15 @@ import {
   ApiUnauthorizedResponse,
   getSchemaPath,
 } from '@nestjs/swagger';
-import { ChatMessageResponseDto } from '../dto/chat-message-response.dto';
+import {
+  ChatMessageResultNoteResponseDto,
+  ChatMessageResultResponseDto,
+  ChatMessageResponseDto,
+  ChatMessageStreamResponseDto,
+} from '../dto/chat-message-response.dto';
 import { ChatResponseDto } from '../dto/chat-response.dto';
 import { CreateChatMessageDto } from '../dto/create-chat-message.dto';
 import { CreateChatDto } from '../dto/create-chat.dto';
-import { SendChatMessageResponseDto } from '../dto/send-chat-message-response.dto';
 
 const chatCursorPaginationResponseSchema = {
   type: 'object',
@@ -112,7 +116,9 @@ export function ApiChatController() {
     ApiExtraModels(
       ChatResponseDto,
       ChatMessageResponseDto,
-      SendChatMessageResponseDto,
+      ChatMessageResultResponseDto,
+      ChatMessageResultNoteResponseDto,
+      ChatMessageStreamResponseDto,
     ),
     ApiUnauthorizedResponse({ description: 'User is not authorized' }),
   );
@@ -200,16 +206,17 @@ export function ApiCreateChatMessage() {
     ApiOperation({
       summary: 'send chat message',
       description:
-        'Creates a USER_INPUT message, one note from cleaned text, and a NOTE_CREATED system message in a single transaction.',
+        'Creates one user message with the original bodyMarkdown, parses leading and trailing lines that start with ":" as stream names, creates one note from the remaining markdown, links the note with the chat stream and parsed streams, and stores only newly created streams in the message result.',
     }),
     ApiChatIdParam(),
     ApiBody({ type: CreateChatMessageDto }),
     ApiCreatedResponse({
       description: 'Chat message was processed',
-      type: SendChatMessageResponseDto,
+      type: ChatMessageResponseDto,
     }),
     ApiBadRequestResponse({
-      description: 'Validation errors or empty note body after stream lines',
+      description:
+        'Validation errors or empty note body after stream service lines',
     }),
     ApiNotFoundResponse({ description: 'Chat not found' }),
   );

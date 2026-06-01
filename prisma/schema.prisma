@@ -13,34 +13,6 @@ datasource db {
   provider = "postgresql"
 }
 
-enum AuthProvider {
-  PASSWORD
-  TELEGRAM
-
-  @@map("auth_provider")
-}
-
-enum NoteSourceType {
-  WEB
-  TELEGRAM
-
-  @@map("note_source_type")
-}
-
-enum ChatMessageRole {
-  USER
-  SYSTEM
-
-  @@map("chat_message_role")
-}
-
-enum ChatMessageKind {
-  USER_INPUT
-  NOTE_CREATED
-
-  @@map("chat_message_kind")
-}
-
 model User {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   login        String    @unique @db.Text
@@ -49,32 +21,10 @@ model User {
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
 
-  identities         AuthIdentity[]
-  streams            Stream[]
-  notes              Note[]
-  chats              Chat[]
-  sessions           Session[]
-  telegramLinkTokens TelegramLinkToken[]
+  streams Stream[]
+  notes   Note[]
 
   @@map("users")
-}
-
-model AuthIdentity {
-  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId           String       @map("user_id") @db.Uuid
-  provider         AuthProvider
-  providerUserId   String       @map("provider_user_id") @db.Text
-  providerUsername String?      @map("provider_username") @db.Text
-  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  lastUsedAt       DateTime?    @map("last_used_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerUserId], map: "auth_identities_provider_provider_user_id_uq")
-  @@unique([userId, provider], map: "auth_identities_user_id_provider_uq")
-  @@index([userId], map: "auth_identities_user_id_idx")
-  @@map("auth_identities")
 }
 
 model Stream {
@@ -85,9 +35,10 @@ model Stream {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  noteStreams NoteStream[]
-  chats       Chat[]
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noteStreams          NoteStream[]
+  chats                Chat[]
+  messageResultStreams MessageResultStream[]
 
   @@unique([userId, normalizedName], map: "streams_user_id_normalized_name_uq")
   @@index([userId], map: "streams_user_id_idx")
@@ -96,59 +47,68 @@ model Stream {
 
 model Chat {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
   streamId  String?  @map("stream_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   stream   Stream?       @relation(fields: [streamId], references: [id], onDelete: Cascade)
   messages ChatMessage[]
 
-  // General chats are constrained by the raw partial index chats_user_id_general_uq.
-  @@unique([userId, streamId], map: "chats_user_id_stream_id_uq")
-  @@index([userId, updatedAt(sort: Desc)], map: "chats_user_id_updated_at_idx")
   @@map("chats")
 }
 
 model ChatMessage {
-  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chatId           String          @map("chat_id") @db.Uuid
-  role             ChatMessageRole
-  kind             ChatMessageKind
-  bodyMarkdown     String          @map("body_markdown") @db.Text
-  replyToMessageId String?         @map("reply_to_message_id") @db.Uuid
-  resultNoteId     String?         @map("result_note_id") @db.Uuid
-  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatId       String   @map("chat_id") @db.Uuid
+  bodyMarkdown String   @map("body_markdown") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  chat           Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  replyToMessage ChatMessage?  @relation("ChatMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
-  replies        ChatMessage[] @relation("ChatMessageReplies")
-  resultNote     Note?         @relation("ChatMessageResultNote", fields: [resultNoteId], references: [id], onDelete: SetNull)
-  sourceNote     Note?         @relation("NoteSourceMessage")
+  chat   Chat           @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  result MessageResult?
 
   @@index([chatId, createdAt], map: "chat_messages_chat_id_created_at_idx")
-  @@index([resultNoteId], map: "chat_messages_result_note_id_idx")
   @@map("chat_messages")
 }
 
-model Note {
-  id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId          String                   @map("user_id") @db.Uuid
-  bodyMarkdown    String                   @map("body_markdown") @db.Text
-  bodyText        String                   @map("body_text") @db.Text
-  previewText     String                   @map("preview_text") @db.Text
-  searchVector    Unsupported("tsvector")? @map("search_vector")
-  sourceType      NoteSourceType           @map("source_type")
-  sourceMeta      Json                     @default("{}") @map("source_meta") @db.JsonB
-  createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt       DateTime?                @map("deleted_at") @db.Timestamptz(3)
-  sourceMessageId String?                  @unique(map: "notes_source_message_id_uq") @map("source_message_id") @db.Uuid
+model MessageResult {
+  messageId String   @id @map("message_id") @db.Uuid
+  noteId    String?  @map("note_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sourceMessage  ChatMessage?  @relation("NoteSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
-  resultMessages ChatMessage[] @relation("ChatMessageResultNote")
+  message ChatMessage           @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  note    Note?                 @relation("MessageResultNote", fields: [noteId], references: [id], onDelete: SetNull)
+  streams MessageResultStream[]
+
+  @@index([noteId], map: "message_results_note_id_idx")
+  @@map("message_results")
+}
+
+model MessageResultStream {
+  messageId String   @map("message_id") @db.Uuid
+  streamId  String   @map("stream_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  messageResult MessageResult @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+  stream        Stream        @relation(fields: [streamId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, streamId], map: "message_result_streams_pkey")
+  @@index([streamId, messageId], map: "message_result_streams_stream_id_message_id_idx")
+  @@map("message_result_streams")
+}
+
+model Note {
+  id           String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String                   @map("user_id") @db.Uuid
+  bodyMarkdown String                   @map("body_markdown") @db.Text
+  bodyText     String                   @map("body_text") @db.Text
+  previewText  String                   @map("preview_text") @db.Text
+  searchVector Unsupported("tsvector")? @map("search_vector")
+  createdAt    DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?                @map("deleted_at") @db.Timestamptz(3)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageResults MessageResult[] @relation("MessageResultNote")
   noteStreams    NoteStream[]
 
   @@index([userId, updatedAt(sort: Desc)], map: "notes_user_id_updated_at_idx")
@@ -165,39 +125,5 @@ model NoteStream {
 
   @@id([noteId, streamId], map: "note_streams_pkey")
   @@index([streamId, noteId], map: "note_streams_stream_id_note_id_idx")
-  @@index([noteId, streamId], map: "note_streams_note_id_stream_id_idx")
   @@map("note_streams")
-}
-
-model Session {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId           String    @map("user_id") @db.Uuid
-  refreshTokenHash String    @unique(map: "sessions_refresh_token_hash_uq") @map("refresh_token_hash") @db.Text
-  userAgent        String?   @map("user_agent") @db.Text
-  ip               String?   @db.Text
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
-  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId], map: "sessions_user_id_idx")
-  @@index([userId, expiresAt], map: "sessions_user_id_expires_at_idx")
-  @@map("sessions")
-}
-
-model TelegramLinkToken {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  tokenHash String    @unique(map: "telegram_link_tokens_token_hash_uq") @map("token_hash") @db.Text
-  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
-  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId], map: "telegram_link_tokens_user_id_idx")
-  @@index([expiresAt], map: "telegram_link_tokens_expires_at_idx")
-  @@index([userId, usedAt], map: "telegram_link_tokens_user_id_used_at_idx")
-  @@map("telegram_link_tokens")
 }

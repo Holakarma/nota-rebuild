@@ -10,7 +10,13 @@ import { UpdateNoteDto } from './dto/update-note.dto';
 import { NoteStreamService } from '@modules/note-stream/note-stream.service';
 import { PaginationService } from '@shared/pagination/pagination.service';
 import { DecodeCursorError } from '@shared/pagination/utils/codec.util';
-import { NoteNotFoundError, NoteRepository } from './note.repository';
+import { SIMILAR_SEARCH_DEFAULT_LIMIT } from '@shared/similar-search/similar-search.constants';
+import { NoteSourceType } from './constants/note-source-type.constant';
+import {
+  type NoteWithSourceMessage,
+  NoteNotFoundError,
+  NoteRepository,
+} from './note.repository';
 import { mapNoteListItemsWithStreams } from './utils/note-list-item.util';
 
 @Injectable()
@@ -55,7 +61,12 @@ export class NoteService {
   }
 
   async findSimilar(userId: string, dto: FindSimilarNotesDto) {
-    const notes = await this.noteRepository.findSimilar(userId, dto.query);
+    const limit = dto.limit ?? SIMILAR_SEARCH_DEFAULT_LIMIT;
+    const notes = await this.noteRepository.findSimilar(
+      userId,
+      dto.query,
+      limit,
+    );
     const streamsByNoteId = await this.noteStreamService.findStreamsByNoteIds(
       userId,
       notes.map((note) => note.id),
@@ -106,7 +117,7 @@ export class NoteService {
     throw error;
   }
 
-  private async mapNoteWithStreams<T extends { id: string }>(
+  private async mapNoteWithStreams<T extends NoteWithSourceMessage>(
     userId: string,
     note: T,
   ) {
@@ -116,8 +127,19 @@ export class NoteService {
     );
 
     return {
-      ...note,
+      ...this.mapNoteApiFields(note),
       streams: streamsByNoteId.get(note.id) ?? [],
+    };
+  }
+
+  private mapNoteApiFields(note: NoteWithSourceMessage) {
+    const { messageResults, ...noteFields } = note;
+
+    return {
+      ...noteFields,
+      sourceType: NoteSourceType.WEB,
+      sourceMeta: {},
+      sourceMessageId: messageResults[0]?.messageId ?? null,
     };
   }
 }

@@ -14,12 +14,14 @@ import { CursorPaginationDto } from '@shared/pagination/dto/pagination.dto';
 import {
   ApiCreateStream,
   ApiDeleteStream,
+  ApiFindSimilarStreams,
   ApiGetStreamById,
   ApiGetStreams,
   ApiStreamController,
   ApiUpdateStream,
 } from './docs/stream.swagger';
 import { CreateStreamDto } from './dto/create-stream.dto';
+import { FindSimilarStreamsDto } from './dto/find-similar-streams.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { StreamService } from './stream.service';
 
@@ -46,6 +48,16 @@ export class StreamController {
     @Query() paginateDto: CursorPaginationDto,
   ) {
     return await this.streamService.findAll(userId, paginateDto);
+  }
+
+  @ApiFindSimilarStreams()
+  @Authorization()
+  @Get('similar')
+  async findSimilar(
+    @Authorized('id') userId: string,
+    @Query() dto: FindSimilarStreamsDto,
+  ) {
+    return await this.streamService.findSimilar(userId, dto);
   }
 
   @ApiGetStreamById()

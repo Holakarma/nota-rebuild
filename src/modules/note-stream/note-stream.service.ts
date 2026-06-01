@@ -25,6 +25,12 @@ type ResolveStreamIdsForNoteParams = {
   client?: PrismaClientLike;
 };
 
+type ResolvedStream = {
+  id: string;
+  normalizedName: string;
+  created: boolean;
+};
+
 @Injectable()
 export class NoteStreamService {
   constructor(
@@ -128,19 +134,36 @@ export class NoteStreamService {
     userId: string,
     params: ResolveStreamIdsForNoteParams = {},
   ) {
+    const result = await this.resolveStreamIdsForNoteResult(userId, params);
+
+    return result.streamIds;
+  }
+
+  async resolveStreamIdsForNoteResult(
+    userId: string,
+    params: ResolveStreamIdsForNoteParams = {},
+  ) {
     const { streamIds = [], streamNames = [], client = this.prisma } = params;
     const ownedStreamIds = await this.getOwnedStreamIdsOrThrow(
       client,
       userId,
       this.uniqueStrings(streamIds),
     );
-    const namedStreamIds = await this.resolveStreamIdsByName(
+    const namedStreams = await this.resolveStreamsByName(
       client,
       userId,
       streamNames,
     );
 
-    return this.uniqueStrings([...ownedStreamIds, ...namedStreamIds]);
+    return {
+      streamIds: this.uniqueStrings([
+        ...ownedStreamIds,
+        ...namedStreams.map((stream) => stream.id),
+      ]),
+      createdStreamIds: namedStreams
+        .filter((stream) => stream.created)
+        .map((stream) => stream.id),
+    };
   }
 
   async findStreamsByNoteIds(
@@ -217,7 +240,7 @@ export class NoteStreamService {
     return streams.map((stream) => stream.id);
   }
 
-  private async resolveStreamIdsByName(
+  private async resolveStreamsByName(
     client: PrismaClientLike,
     userId: string,
     streamNames: string[],
@@ -228,31 +251,83 @@ export class NoteStreamService {
       return [];
     }
 
-    const streamIds: string[] = [];
+    const streamsByNormalizedName = new Map<string, ResolvedStream>();
 
-    for (const name of names) {
-      const stream = await client.stream.upsert({
-        where: {
-          userId_normalizedName: {
-            userId,
-            normalizedName: name.normalizedName,
-          },
+    const existingStreams = await client.stream.findMany({
+      where: {
+        userId,
+        normalizedName: {
+          in: names.map((name) => name.normalizedName),
         },
-        update: {},
-        create: {
+      },
+      select: {
+        id: true,
+        normalizedName: true,
+      },
+    });
+
+    for (const stream of existingStreams) {
+      streamsByNormalizedName.set(stream.normalizedName, {
+        ...stream,
+        created: false,
+      });
+    }
+
+    const missingNames = names.filter(
+      (name) => !streamsByNormalizedName.has(name.normalizedName),
+    );
+
+    if (missingNames.length > 0) {
+      const createdStreams = await client.stream.createManyAndReturn({
+        data: missingNames.map((name) => ({
           userId,
           name: name.name,
           normalizedName: name.normalizedName,
-        },
+        })),
+        skipDuplicates: true,
         select: {
           id: true,
+          normalizedName: true,
         },
       });
 
-      streamIds.push(stream.id);
+      for (const stream of createdStreams) {
+        streamsByNormalizedName.set(stream.normalizedName, {
+          ...stream,
+          created: true,
+        });
+      }
+
+      const concurrentlyCreatedNames = missingNames.filter(
+        (name) => !streamsByNormalizedName.has(name.normalizedName),
+      );
+
+      if (concurrentlyCreatedNames.length > 0) {
+        const concurrentlyCreatedStreams = await client.stream.findMany({
+          where: {
+            userId,
+            normalizedName: {
+              in: concurrentlyCreatedNames.map((name) => name.normalizedName),
+            },
+          },
+          select: {
+            id: true,
+            normalizedName: true,
+          },
+        });
+
+        for (const stream of concurrentlyCreatedStreams) {
+          streamsByNormalizedName.set(stream.normalizedName, {
+            ...stream,
+            created: false,
+          });
+        }
+      }
     }
 
-    return streamIds;
+    return names
+      .map((name) => streamsByNormalizedName.get(name.normalizedName))
+      .filter((stream): stream is ResolvedStream => Boolean(stream));
   }
 
   private async getOwnedStreamOrThrow(

@@ -16,8 +16,14 @@ import {
   getSchemaPath,
 } from '@nestjs/swagger';
 import { CreateStreamDto } from '../dto/create-stream.dto';
+import { FindSimilarStreamsDto } from '../dto/find-similar-streams.dto';
 import { StreamResponseDto } from '../dto/stream-response.dto';
 import { UpdateStreamDto } from '../dto/update-stream.dto';
+import {
+  SIMILAR_SEARCH_DEFAULT_LIMIT,
+  SIMILAR_SEARCH_MAX_LIMIT,
+  SIMILAR_SEARCH_MIN_LIMIT,
+} from '@shared/similar-search/similar-search.constants';
 
 const booleanSuccessResponseSchema = {
   type: 'boolean',
@@ -86,7 +92,7 @@ export function ApiStreamController() {
   return applyDecorators(
     ApiTags('stream'),
     ApiBearerAuth(),
-    ApiExtraModels(StreamResponseDto),
+    ApiExtraModels(StreamResponseDto, FindSimilarStreamsDto),
     ApiUnauthorizedResponse({ description: 'User is not authorized' }),
   );
 }
@@ -125,6 +131,46 @@ export function ApiGetStreams() {
     }),
     ApiBadRequestResponse({
       description: 'Validation errors or invalid cursor',
+    }),
+  );
+}
+
+export function ApiFindSimilarStreams() {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'find similar streams',
+      description:
+        'Returns authorized user streams ranked by name similarity to the query string. Ranking combines multilingual PostgreSQL full-text search and trigram word similarity.',
+    }),
+    ApiQuery({
+      name: 'query',
+      required: true,
+      description: 'Text used to find the closest streams by name.',
+      type: String,
+      schema: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 500,
+      },
+    }),
+    ApiQuery({
+      name: 'limit',
+      required: false,
+      description: 'Maximum number of similar streams to return.',
+      type: Number,
+      schema: {
+        type: 'integer',
+        minimum: SIMILAR_SEARCH_MIN_LIMIT,
+        maximum: SIMILAR_SEARCH_MAX_LIMIT,
+        default: SIMILAR_SEARCH_DEFAULT_LIMIT,
+      },
+    }),
+    ApiOkResponse({
+      description: 'Closest authorized user streams',
+      type: [StreamResponseDto],
+    }),
+    ApiBadRequestResponse({
+      description: 'Validation errors',
     }),
   );
 }

@@ -15,12 +15,12 @@ import {
   SIMILAR_SEARCH_MIN_LIMIT,
 } from '@shared/similar-search/similar-search.constants';
 
-export class FindSimilarNotesDto {
+export class FindSimilarStreamsDto {
   @ApiProperty({
-    description: 'Text used to find the closest notes by content',
+    description: 'Text used to find the closest streams by name',
     minLength: 1,
     maxLength: 500,
-    example: 'meeting notes about project deadlines',
+    example: 'work projects',
   })
   @Transform(({ value }: { value: string }) => value.trim())
   @IsString()
@@ -29,7 +29,7 @@ export class FindSimilarNotesDto {
   query!: string;
 
   @ApiPropertyOptional({
-    description: 'Maximum number of similar notes to return',
+    description: 'Maximum number of similar streams to return',
     minimum: SIMILAR_SEARCH_MIN_LIMIT,
     maximum: SIMILAR_SEARCH_MAX_LIMIT,
     default: SIMILAR_SEARCH_DEFAULT_LIMIT,

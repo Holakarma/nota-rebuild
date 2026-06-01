@@ -1,8 +1,52 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  ChatMessageKind,
-  ChatMessageRole,
-} from '@core/prisma/generated/prisma/client';
+import { ChatMessageRole } from '../constants/chat-message-role.constant';
+
+export class ChatMessageStreamResponseDto {
+  @ApiProperty({
+    format: 'uuid',
+    example: '1a6b43f3-d064-4e83-a9ec-fba73453a49c',
+  })
+  id!: string;
+
+  @ApiProperty({ example: 'work' })
+  name!: string;
+}
+
+export class ChatMessageResultNoteResponseDto {
+  @ApiProperty({
+    format: 'uuid',
+    example: '8e2d5c9a-2b19-4d2f-9a4e-7d1c2f6a9b10',
+  })
+  id!: string;
+
+  @ApiProperty({
+    description: 'markdown-stripped preview text of the created note',
+    example: 'Need to follow up with Alex tomorrow',
+  })
+  previewText!: string;
+
+  @ApiProperty({
+    description: 'names of all streams linked to the created note',
+    type: [String],
+    example: ['work'],
+  })
+  streamNames!: string[];
+}
+
+export class ChatMessageResultResponseDto {
+  @ApiProperty({
+    description: 'note created from this message',
+    type: () => ChatMessageResultNoteResponseDto,
+    nullable: true,
+  })
+  note!: ChatMessageResultNoteResponseDto | null;
+
+  @ApiProperty({
+    description: 'streams newly created while processing this message',
+    type: () => [ChatMessageStreamResponseDto],
+  })
+  streams!: ChatMessageStreamResponseDto[];
+}
 
 export class ChatMessageResponseDto {
   @ApiProperty({
@@ -25,13 +69,9 @@ export class ChatMessageResponseDto {
   role!: ChatMessageRole;
 
   @ApiProperty({
-    enum: ChatMessageKind,
-    enumName: 'ChatMessageKind',
-    example: ChatMessageKind.USER_INPUT,
+    description: 'original user message markdown',
+    example: ':work\nNeed to follow up with Alex tomorrow',
   })
-  kind!: ChatMessageKind;
-
-  @ApiProperty({ example: ':work\nNeed to follow up with Alex tomorrow' })
   bodyMarkdown!: string;
 
   @ApiPropertyOptional({
@@ -41,12 +81,12 @@ export class ChatMessageResponseDto {
   })
   replyToMessageId!: string | null;
 
-  @ApiPropertyOptional({
-    format: 'uuid',
+  @ApiProperty({
+    description: 'message processing result',
+    type: () => ChatMessageResultResponseDto,
     nullable: true,
-    example: '8e2d5c9a-2b19-4d2f-9a4e-7d1c2f6a9b10',
   })
-  resultNoteId!: string | null;
+  result!: ChatMessageResultResponseDto | null;
 
   @ApiProperty({
     format: 'date-time',

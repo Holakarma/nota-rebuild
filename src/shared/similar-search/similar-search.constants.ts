@@ -1,0 +1,3 @@
+export const SIMILAR_SEARCH_DEFAULT_LIMIT = 5;
+export const SIMILAR_SEARCH_MIN_LIMIT = 2;
+export const SIMILAR_SEARCH_MAX_LIMIT = 100;

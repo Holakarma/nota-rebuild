@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { NoteSourceType, Prisma } from '@core/prisma/generated/prisma/client';
+import { Prisma } from '@core/prisma/generated/prisma/client';
 import { PrismaService } from '@core/prisma/prisma.service';
 import { PaginationService } from '@shared/pagination/pagination.service';
+import { SIMILAR_SEARCH_DEFAULT_LIMIT } from '@shared/similar-search/similar-search.constants';
 import { FindNotesDto } from './dto/find-notes.dto';
 import { buildNoteContentFields } from './utils/note-content.util';
 import {
@@ -9,8 +10,31 @@ import {
   noteListItemSelect,
 } from './utils/note-list-item.util';
 
-const SIMILAR_NOTES_LIMIT = 5;
 const SIMILAR_NOTES_MIN_SCORE = 0.12;
+
+export const noteWithSourceMessageSelect = {
+  id: true,
+  userId: true,
+  bodyMarkdown: true,
+  bodyText: true,
+  previewText: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+  messageResults: {
+    select: {
+      messageId: true,
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+    take: 1,
+  },
+} as const satisfies Prisma.NoteSelect;
+
+export type NoteWithSourceMessage = Prisma.NoteGetPayload<{
+  select: typeof noteWithSourceMessageSelect;
+}>;
 
 type ResolveNoteStreamIds = (
   client: Prisma.TransactionClient,
@@ -41,7 +65,6 @@ export class NoteRepository {
         data: {
           userId,
           ...buildNoteContentFields(bodyMarkdown),
-          sourceType: NoteSourceType.WEB,
           ...(streamIds.length > 0 && {
             noteStreams: {
               createMany: {
@@ -82,7 +105,11 @@ export class NoteRepository {
     });
   }
 
-  async findSimilar(userId: string, query: string): Promise<NoteListItem[]> {
+  async findSimilar(
+    userId: string,
+    query: string,
+    limit = SIMILAR_SEARCH_DEFAULT_LIMIT,
+  ): Promise<NoteListItem[]> {
     return await this.prisma.$queryRaw<NoteListItem[]>`
       WITH "search" AS (
         SELECT
@@ -128,7 +155,7 @@ export class NoteRepository {
         "similarityScore" DESC,
         "updatedAt" DESC,
         "id" DESC
-      LIMIT ${SIMILAR_NOTES_LIMIT}
+      LIMIT ${limit}
     `;
   }
 
@@ -136,6 +163,7 @@ export class NoteRepository {
     try {
       return await this.prisma.note.findFirstOrThrow({
         where: { id, userId },
+        select: noteWithSourceMessageSelect,
       });
     } catch (error: unknown) {
       this.throwNoteNotFoundIfNeeded(error);
@@ -151,6 +179,7 @@ export class NoteRepository {
           id: note.id,
         },
         data: buildNoteContentFields(bodyMarkdown),
+        select: noteWithSourceMessageSelect,
       });
     } catch (error: unknown) {
       this.throwNoteNotFoundIfNeeded(error);

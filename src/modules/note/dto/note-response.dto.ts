@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { NoteSourceType } from '@core/prisma/generated/prisma/client';
+import { NoteSourceType } from '../constants/note-source-type.constant';
 import { NoteListStreamResponseDto } from './note-with-streams-response.dto';
 
 export class NoteResponseDto {

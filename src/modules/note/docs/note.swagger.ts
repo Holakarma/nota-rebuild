@@ -22,6 +22,11 @@ import {
   NoteWithStreamsResponseDto,
 } from '../dto/note-with-streams-response.dto';
 import { UpdateNoteDto } from '../dto/update-note.dto';
+import {
+  SIMILAR_SEARCH_DEFAULT_LIMIT,
+  SIMILAR_SEARCH_MAX_LIMIT,
+  SIMILAR_SEARCH_MIN_LIMIT,
+} from '@shared/similar-search/similar-search.constants';
 
 const booleanSuccessResponseSchema = {
   type: 'boolean',
@@ -82,7 +87,7 @@ export function ApiCreateNote() {
     ApiOperation({
       summary: 'create note',
       description:
-        'Creates a note for the authorized user. Optional streamIds link existing user streams, optional streamNames create missing streams automatically and link them. The service stores full content in bodyMarkdown, stores markdown-stripped text in bodyText, uses the first 20 plain-text characters as previewText, and sets sourceType to WEB.',
+        'Creates a note for the authorized user. Optional streamIds link existing user streams. The service stores full content in bodyMarkdown, stores markdown-stripped text in bodyText, uses the first 20 plain-text characters as previewText, and returns sourceType as WEB for API compatibility.',
     }),
     ApiBody({ type: CreateNoteDto }),
     ApiCreatedResponse({
@@ -142,7 +147,7 @@ export function ApiFindSimilarNotes() {
     ApiOperation({
       summary: 'find similar notes',
       description:
-        'Returns up to 5 authorized user note cards ranked by content similarity to the query string. Ranking combines multilingual PostgreSQL full-text search and trigram word similarity.',
+        'Returns authorized user note cards ranked by content similarity to the query string. Ranking combines multilingual PostgreSQL full-text search and trigram word similarity.',
     }),
     ApiQuery({
       name: 'query',
@@ -153,6 +158,18 @@ export function ApiFindSimilarNotes() {
         type: 'string',
         minLength: 1,
         maxLength: 500,
+      },
+    }),
+    ApiQuery({
+      name: 'limit',
+      required: false,
+      description: 'Maximum number of similar notes to return.',
+      type: Number,
+      schema: {
+        type: 'integer',
+        minimum: SIMILAR_SEARCH_MIN_LIMIT,
+        maximum: SIMILAR_SEARCH_MAX_LIMIT,
+        default: SIMILAR_SEARCH_DEFAULT_LIMIT,
       },
     }),
     ApiOkResponse({
