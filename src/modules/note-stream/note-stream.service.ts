@@ -53,7 +53,6 @@ export class NoteStreamService {
       const notes = await this.prisma.note.findMany({
         where: {
           userId,
-          deletedAt: null,
           noteStreams: {
             some: {
               streamId: stream.id,
@@ -185,7 +184,6 @@ export class NoteStreamService {
         },
         note: {
           userId,
-          deletedAt: null,
         },
         stream: {
           userId,
@@ -351,7 +349,7 @@ export class NoteStreamService {
   ) {
     try {
       return await client.note.findFirstOrThrow({
-        where: { id, userId, deletedAt: null },
+        where: { id, userId },
         select: {
           id: true,
         },

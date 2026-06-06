@@ -18,30 +18,15 @@ import { parseChatMessageForNote } from './utils/chat-message-parser.util';
 
 type PrismaClientLike = PrismaService | Prisma.TransactionClient;
 
-const chatMessageResultInclude = {
-  result: {
-    include: {
-      note: {
-        select: {
-          id: true,
-          previewText: true,
-          noteStreams: {
-            select: {
-              stream: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-            orderBy: { createdAt: 'asc' },
-          },
-        },
-      },
-      streams: {
+const messageInclude = {
+  notes: {
+    select: {
+      id: true,
+      previewText: true,
+      noteStreams: {
         select: {
           stream: {
             select: {
-              id: true,
               name: true,
             },
           },
@@ -50,16 +35,17 @@ const chatMessageResultInclude = {
       },
     },
   },
-} as const satisfies Prisma.ChatMessageInclude;
+  streams: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} as const satisfies Prisma.MessageInclude;
 
-type ChatMessageWithResult = Prisma.ChatMessageGetPayload<{
-  include: typeof chatMessageResultInclude;
+type MessageWithRelations = Prisma.MessageGetPayload<{
+  include: typeof messageInclude;
 }>;
-
-type ChatMessageStream = {
-  id: string;
-  name: string;
-};
 
 @Injectable()
 export class ChatService {
@@ -138,11 +124,11 @@ export class ChatService {
   ) {
     try {
       const chat = await this.getOwnedChatOrThrow(userId, chatId);
-      const messages = await this.prisma.chatMessage.findMany({
+      const messages = await this.prisma.message.findMany({
         where: { chatId: chat.id },
-        include: chatMessageResultInclude,
+        include: messageInclude,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        ...this.pagination.toPrismaCursorArgs<Prisma.ChatMessageWhereUniqueInput>(
+        ...this.pagination.toPrismaCursorArgs<Prisma.MessageWhereUniqueInput>(
           paginateDto,
           (id) => ({ id }),
         ),
@@ -175,22 +161,26 @@ export class ChatService {
 
     return await this.prisma.$transaction(async (tx) => {
       const chat = await this.getOwnedChatOrThrow(userId, chatId, tx);
-      const userMessage = await tx.chatMessage.create({
-        data: {
-          chatId: chat.id,
-          bodyMarkdown: dto.bodyMarkdown,
-        },
-      });
+
       const { streamIds, createdStreamIds } =
         await this.noteStreamService.resolveStreamIdsForNoteResult(userId, {
           streamIds: chat.streamId ? [chat.streamId] : [],
           streamNames: parsedMessage.streamNames,
           client: tx,
         });
-      const note = await tx.note.create({
+
+      const userMessage = await tx.message.create({
+        data: {
+          chatId: chat.id,
+          bodyMarkdown: dto.bodyMarkdown,
+        },
+      });
+
+      await tx.note.create({
         data: {
           userId,
           ...buildNoteContentFields(parsedMessage.bodyMarkdown),
+          fromMessageId: userMessage.id,
           ...(streamIds.length > 0 && {
             noteStreams: {
               createMany: {
@@ -204,28 +194,21 @@ export class ChatService {
           id: true,
         },
       });
-      const message = await tx.chatMessage.update({
-        where: { id: userMessage.id },
-        data: {
-          result: {
-            create: {
-              note: {
-                connect: {
-                  id: note.id,
-                },
-              },
-              ...(createdStreamIds.length > 0 && {
-                streams: {
-                  createMany: {
-                    data: createdStreamIds.map((streamId) => ({ streamId })),
-                    skipDuplicates: true,
-                  },
-                },
-              }),
-            },
+
+      if (createdStreamIds.length > 0) {
+        await tx.stream.updateMany({
+          where: {
+            id: { in: createdStreamIds },
           },
-        },
-        include: chatMessageResultInclude,
+          data: {
+            fromMessageId: userMessage.id,
+          },
+        });
+      }
+
+      const message = await tx.message.findUniqueOrThrow({
+        where: { id: userMessage.id },
+        include: messageInclude,
       });
 
       await tx.chat.update({
@@ -237,34 +220,36 @@ export class ChatService {
     });
   }
 
-  private mapChatMessages(messages: ChatMessageWithResult[]) {
+  private mapChatMessages(messages: MessageWithRelations[]) {
     return messages.map((message) => this.mapChatMessage(message));
   }
 
-  private mapChatMessage(message: ChatMessageWithResult) {
-    const { result, ...messageFields } = message;
+  private mapChatMessage(message: MessageWithRelations) {
+    const { notes, streams, ...messageFields } = message;
+    const note = notes[0] ?? null;
 
     return {
       ...messageFields,
       role: ChatMessageRole.USER,
       replyToMessageId: null,
-      result: result
-        ? {
-            note: result.note
-              ? {
-                  id: result.note.id,
-                  previewText: result.note.previewText,
-                  streamNames: result.note.noteStreams.map(
-                    (noteStream) => noteStream.stream.name,
-                  ),
-                }
-              : null,
-            streams: result.streams.map((messageResultStream) => ({
-              id: messageResultStream.stream.id,
-              name: messageResultStream.stream.name,
-            })),
-          }
-        : null,
+      result:
+        note || streams.length > 0
+          ? {
+              note: note
+                ? {
+                    id: note.id,
+                    previewText: note.previewText,
+                    streamNames: note.noteStreams.map(
+                      (noteStream) => noteStream.stream.name,
+                    ),
+                  }
+                : null,
+              streams: streams.map((stream) => ({
+                id: stream.id,
+                name: stream.name,
+              })),
+            }
+          : null,
     };
   }
 
@@ -429,13 +414,9 @@ export class ChatService {
         streamId: null,
         messages: {
           some: {
-            result: {
-              is: {
-                note: {
-                  is: {
-                    userId,
-                  },
-                },
+            notes: {
+              some: {
+                userId,
               },
             },
           },

@@ -20,16 +20,7 @@ export const noteWithSourceMessageSelect = {
   previewText: true,
   createdAt: true,
   updatedAt: true,
-  deletedAt: true,
-  messageResults: {
-    select: {
-      messageId: true,
-    },
-    orderBy: {
-      createdAt: 'asc',
-    },
-    take: 1,
-  },
+  fromMessageId: true,
 } as const satisfies Prisma.NoteSelect;
 
 export type NoteWithSourceMessage = Prisma.NoteGetPayload<{
@@ -81,7 +72,6 @@ export class NoteRepository {
   async findAll(userId: string, dto: FindNotesDto): Promise<NoteListItem[]> {
     const where: Prisma.NoteWhereInput = {
       userId,
-      deletedAt: null,
       ...(dto.streamId && {
         noteStreams: {
           some: {
@@ -142,7 +132,6 @@ export class NoteRepository {
         CROSS JOIN "search"
         WHERE
           "note"."user_id" = ${userId}::uuid
-          AND "note"."deleted_at" IS NULL
       )
       SELECT
         "id",

@@ -55,20 +55,10 @@ export type Stream = Prisma.StreamModel
  */
 export type Chat = Prisma.ChatModel
 /**
- * Model ChatMessage
+ * Model Message
  * 
  */
-export type ChatMessage = Prisma.ChatMessageModel
-/**
- * Model MessageResult
- * 
- */
-export type MessageResult = Prisma.MessageResultModel
-/**
- * Model MessageResultStream
- * 
- */
-export type MessageResultStream = Prisma.MessageResultStreamModel
+export type Message = Prisma.MessageModel
 /**
  * Model Note
  * 

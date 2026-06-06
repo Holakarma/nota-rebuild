@@ -54,9 +54,7 @@ export const ModelName = {
   User: 'User',
   Stream: 'Stream',
   Chat: 'Chat',
-  ChatMessage: 'ChatMessage',
-  MessageResult: 'MessageResult',
-  MessageResultStream: 'MessageResultStream',
+  Message: 'Message',
   Note: 'Note',
   NoteStream: 'NoteStream'
 } as const
@@ -82,8 +80,7 @@ export const UserScalarFieldEnum = {
   login: 'login',
   passwordHash: 'passwordHash',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
-  lastLoginAt: 'lastLoginAt'
+  updatedAt: 'updatedAt'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
@@ -94,6 +91,7 @@ export const StreamScalarFieldEnum = {
   userId: 'userId',
   name: 'name',
   normalizedName: 'normalizedName',
+  fromMessageId: 'fromMessageId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -111,32 +109,14 @@ export const ChatScalarFieldEnum = {
 export type ChatScalarFieldEnum = (typeof ChatScalarFieldEnum)[keyof typeof ChatScalarFieldEnum]
 
 
-export const ChatMessageScalarFieldEnum = {
+export const MessageScalarFieldEnum = {
   id: 'id',
   chatId: 'chatId',
   bodyMarkdown: 'bodyMarkdown',
   createdAt: 'createdAt'
 } as const
 
-export type ChatMessageScalarFieldEnum = (typeof ChatMessageScalarFieldEnum)[keyof typeof ChatMessageScalarFieldEnum]
-
-
-export const MessageResultScalarFieldEnum = {
-  messageId: 'messageId',
-  noteId: 'noteId',
-  createdAt: 'createdAt'
-} as const
-
-export type MessageResultScalarFieldEnum = (typeof MessageResultScalarFieldEnum)[keyof typeof MessageResultScalarFieldEnum]
-
-
-export const MessageResultStreamScalarFieldEnum = {
-  messageId: 'messageId',
-  streamId: 'streamId',
-  createdAt: 'createdAt'
-} as const
-
-export type MessageResultStreamScalarFieldEnum = (typeof MessageResultStreamScalarFieldEnum)[keyof typeof MessageResultStreamScalarFieldEnum]
+export type MessageScalarFieldEnum = (typeof MessageScalarFieldEnum)[keyof typeof MessageScalarFieldEnum]
 
 
 export const NoteScalarFieldEnum = {
@@ -145,9 +125,9 @@ export const NoteScalarFieldEnum = {
   bodyMarkdown: 'bodyMarkdown',
   bodyText: 'bodyText',
   previewText: 'previewText',
+  fromMessageId: 'fromMessageId',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
-  deletedAt: 'deletedAt'
+  updatedAt: 'updatedAt'
 } as const
 
 export type NoteScalarFieldEnum = (typeof NoteScalarFieldEnum)[keyof typeof NoteScalarFieldEnum]
