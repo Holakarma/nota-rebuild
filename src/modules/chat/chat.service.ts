@@ -75,7 +75,7 @@ export class ChatService {
     const existingChat = await this.findAvailableChat(userId, streamId);
 
     if (existingChat) {
-      return existingChat;
+      return this.mapChat(existingChat, userId);
     }
 
     try {
@@ -334,7 +334,7 @@ export class ChatService {
       throw error;
     }
 
-    return chat;
+    return this.mapChat(chat, userId);
   }
 
   private async getOwnedStreamOrThrow(userId: string, id: string) {
@@ -380,10 +380,6 @@ export class ChatService {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2002'
     );
-  }
-
-  private uniqueStrings(values: string[]) {
-    return [...new Set(values)];
   }
 
   private mapChat<

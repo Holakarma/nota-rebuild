@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { hash, verify } from 'argon2';
 import { JwtService } from '@nestjs/jwt';
 import { SignInRequestDto } from './dto/sign-in.dto';
-import { type Request, type Response } from 'express';
+import { type Request, type Response, type CookieOptions } from 'express';
 import { isDev } from '@shared/utils/is-dev.util';
 import type { JwtPayload } from './interfaces/jwt.interface';
 import type { StringValue } from 'ms';
@@ -97,7 +97,8 @@ export class AuthService {
   }
 
   logout(res: Response) {
-    this.setCookie(res, 'refreshToken', new Date(0)); // delete cookie
+    this.clearCookie(res);
+
     return true;
   }
 
@@ -131,13 +132,24 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private setCookie(res: Response, value: string, expires: Date) {
-    res.cookie('refreshToken', value, {
+  private getCookieOptions(): CookieOptions {
+    return {
       httpOnly: true,
-      domain: this.COOKIE_DOMAIN,
-      expires,
+      domain:
+        this.COOKIE_DOMAIN === 'localhost' ? undefined : this.COOKIE_DOMAIN,
       secure: !isDev(this.config),
       sameSite: 'lax',
+    };
+  }
+
+  private setCookie(res: Response, value: string, expires: Date) {
+    res.cookie('refreshToken', value, {
+      ...this.getCookieOptions(),
+      expires,
     });
+  }
+
+  private clearCookie(res: Response) {
+    res.clearCookie('refreshToken', this.getCookieOptions());
   }
 }
