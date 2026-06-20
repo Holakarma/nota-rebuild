@@ -133,13 +133,13 @@ export class NoteService {
   }
 
   private mapNoteApiFields(note: NoteWithSourceMessage) {
-    const { messageResults, ...noteFields } = note;
+    const { fromMessageId, ...noteFields } = note;
 
     return {
       ...noteFields,
       sourceType: NoteSourceType.WEB,
       sourceMeta: {},
-      sourceMessageId: messageResults[0]?.messageId ?? null,
+      sourceMessageId: fromMessageId ?? null,
     };
   }
 }

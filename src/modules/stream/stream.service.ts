@@ -85,6 +85,7 @@ export class StreamService {
           "stream"."user_id" AS "userId",
           "stream"."name",
           "stream"."normalized_name" AS "normalizedName",
+          "stream"."from_message_id" AS "fromMessageId",
           "stream"."created_at" AS "createdAt",
           "stream"."updated_at" AS "updatedAt",
           CASE
@@ -119,6 +120,7 @@ export class StreamService {
         "userId",
         "name",
         "normalizedName",
+        "fromMessageId",
         "createdAt",
         "updatedAt"
       FROM "scoredStreams"
